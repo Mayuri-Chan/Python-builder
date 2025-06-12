@@ -1,0 +1,65 @@
+name: Build Python (X86_64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Container image to use'
+        required: true
+        default: wulan17/debian:latest
+      tarball_url:
+        description: 'URL to download the tarball (tgz/tar.gz/tar.xz)'
+        required: true
+        default: 'https://www.python.org/ftp/python/3.13.5/Python-3.13.5.tgz'
+      install_path:
+        description: 'Installation path for Python (default: /opt/pythonX.Y)'
+        required: false
+      enable_jit:
+        description: 'Enable Experimental JIT Compiler Feature (0 for no, 1 for yes)'
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ github.event.inputs.image }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up dependencies
+        run: bash build.sh deps
+
+      - name: Write Configuration
+        run: bash build.sh write_config
+        env:
+          TARBALL_URL: ${{ github.event.inputs.tarball_url }}
+          ENABLE_JIT: ${{ github.event.inputs.enable_jit }}
+          BASE_DIR: ${{ github.workspace }}
+          INSTALL_PATH: ${{ github.event.inputs.install_path }}
+
+      - name: Download Python source
+        run: bash build.sh download
+
+      #- name: Setup clang
+      #  run: bash build.sh setup_clang
+
+      - name: Configure Python
+        run: bash build.sh configure
+
+      - name: Build Python
+        run: bash build.sh build
+
+      - name: Install Python
+        run: bash build.sh install
+
+      - name: Compress Python
+        run: bash build.sh compress
+
+      - name: Release Build Artifacts
+        run: bash build.sh release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
