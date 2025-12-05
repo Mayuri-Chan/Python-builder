@@ -5,7 +5,7 @@ source config.sh
 function parse_parameters() {
     while (($#)); do
         case $1 in
-            all | deps | write_config | download | setup_clang | configure | build | install | compress | release ) action=$1 ;;
+            all | deps | write_config | download | setup_clang | configure | build | install | compress | deb | release ) action=$1 ;;
             *) exit 33 ;;
         esac
         shift
@@ -23,7 +23,7 @@ function do_deps() {
         case "$ID" in
             debian)
                 apt update && apt upgrade -y
-                apt install -y curl wget build-essential libreadline-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev libffi-dev zlib1g-dev python3 python3-dev git patchelf file libgdbm-dev liblzma-dev
+                apt install -y curl wget build-essential libreadline-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev libffi-dev zlib1g-dev python3 python3-dev git patchelf file libgdbm-dev liblzma-dev 
                 ;;
             *)
                 echo "Unsupported distribution: $ID"
@@ -41,6 +41,8 @@ function do_deps() {
 
 function do_write_config() {
     cd "$BASE_DIR" || exit 1
+    git config --global --add safe.directory "$BASE_DIR"
+    git checkout -b $VENDOR_STRING
     echo "#!/bin/bash" > config.sh
     echo "export BASE_DIR=$BASE_DIR" >> config.sh
     echo 'export PATH="$BASE_DIR/clang/bin:$PATH"' >> config.sh
@@ -196,6 +198,19 @@ function do_compress() {
     fi
 }
 
+function do_deb() {
+    sed -i "s/<version>/$PYTHON_VERSION/g" "$BASE_DIR"/package_root/DEBIAN/control
+    sed -i "s/<full_version>/$PYTHON_VERSION_FULL/g" "$BASE_DIR"/package_root/DEBIAN/control
+    if [[ "$ARCH" == "aarch64" ]]; then
+        sed -i "s/<arch>/arm64/g" "$BASE_DIR"/package_root/DEBIAN/control
+    else
+        sed -i "s/<arch>/amd64/g" "$BASE_DIR"/package_root/DEBIAN/control
+    fi
+    mkdir -p "$BASE_DIR"/package_root"$INSTALL_PATH"
+    cp -r "$INSTALL_PATH"/* "$BASE_DIR"/package_root"$INSTALL_PATH"/
+    dpkg-deb --build "$BASE_DIR"/package_root "$BASE_DIR"/dist/python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb
+}
+
 function do_release() {
     export GITHUB_TOKEN
     export GITHUB_REPOSITORY
@@ -242,6 +257,14 @@ function do_release() {
             -H "Content-Type: application/gzip" \
             --data-binary @"$asset" \
             "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?name=$(basename "$asset")"
+        if [[ "$DISTRO" == "arch" ]]; then
+            echo "Asset uploaded to release."
+            exit 0
+        fi
+        curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/vnd.debian.binary-package" \
+            --data-binary @"python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb" \
+            "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?name=python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb"
         echo "Asset uploaded to release."
     else
         echo "Failed to create or find release."
@@ -258,6 +281,7 @@ function do_all() {
     do_build
     do_install
     do_compress
+    do_deb
 }
 
 parse_parameters "$@"

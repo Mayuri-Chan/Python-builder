@@ -17,6 +17,10 @@ on:
       enable_jit:
         description: 'Enable Experimental JIT Compiler Feature (0 for no, 1 for yes)'
         required: false
+      vendor_string:
+        description: 'Vendor string to embed in the build'
+        required: false
+        default: 'Mayuri'
 
 jobs:
   build:
@@ -39,6 +43,7 @@ jobs:
           ENABLE_JIT: ${{ github.event.inputs.enable_jit }}
           BASE_DIR: ${{ github.workspace }}
           INSTALL_PATH: ${{ github.event.inputs.install_path }}
+          VENDOR_STRING: ${{ github.event.inputs.vendor_string }}
 
       - name: Download Python source
         run: bash build.sh download
@@ -57,6 +62,9 @@ jobs:
 
       - name: Compress Python
         run: bash build.sh compress
+
+      - name: Build Debian Package
+        run: bash build.sh deb
 
       - name: Release Build Artifacts
         run: bash build.sh release
