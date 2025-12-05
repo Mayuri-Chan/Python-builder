@@ -1,0 +1,9 @@
+Package: python<version>-mayuri
+Version: <full_version>
+Section: interpreters
+Priority: optional
+Architecture: <arch>
+Depends: libc6, libssl3, libsqlite3-0, libbz2-1.0, zlib1g, libffi8, libgdbm6, liblzma5, libreadline8, libncursesw6
+Maintainer: wulan17 <wulan17@komodos.id>
+Description: Custom build of Python <full_version>
+  Provides latest features and optimizations.
