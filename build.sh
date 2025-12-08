@@ -30,9 +30,6 @@ function do_deps() {
                 exit 1
                 ;;
         esac
-    elif [[ $(command -v pacman) ]]; then
-        pacman -Syu --noconfirm
-        pacman -S --noconfirm curl wget base-devel readline ncurses openssl sqlite tk gdbm glibc bzip2 libffi zlib python git patchelf file gdbm xz
     else
         echo "Your selected distribution is not supported."
         exit 1
@@ -68,8 +65,6 @@ function do_write_config() {
         fi
         echo "export DISTRO=debian" >> config.sh
         echo "export DISTRO_VERSION=$VERSION_ID" >> config.sh
-    elif [[ $(command -v pacman) ]]; then
-        echo "export DISTRO=arch" >> config.sh
     else
         echo "Your selected distribution is not supported."
         exit 1
@@ -105,8 +100,9 @@ function do_setup_clang() {
     if [[ $ARCH = "x86_64" ]]; then
         if [[ $DISTRO = "debian" ]]; then
             clang_url="https://github.com/Mayuri-Chan/clang/releases/download/21.0.0git-e64f8e043/Mayuri-clang_21.0.0git-bookworm-adfea33f0.tar.xz"
-        elif [[ $DISTRO = "arch" ]]; then
-            clang_url="https://github.com/Mayuri-Chan/clang/releases/download/21.0.0git-e64f8e043/Mayuri-clang_21.0.0git-archlinux-e64f8e043.tar.xz"
+        else
+            echo "Unsupported distribution for x86_64 architecture."
+            exit 1
         fi
     else
         if [[ $DISTRO = "debian" ]]; then
@@ -190,11 +186,7 @@ function do_install() {
 function do_compress() {
     cd "$BASE_DIR"/Python-* || exit 1
     mkdir -p "$BASE_DIR"/dist
-    if [[ $DISTRO == "arch" ]];then
-        tar -cJf "$BASE_DIR"/dist/python-$PYTHON_VERSION_FULL-$DISTRO-$ARCH.tar.xz -C "$INSTALL_PATH" .
-    else
-        tar -cJf "$BASE_DIR"/dist/python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz -C "$INSTALL_PATH" .
-    fi
+    tar -cJf "$BASE_DIR"/dist/python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz -C "$INSTALL_PATH" .
 }
 
 function do_deb() {
@@ -221,11 +213,7 @@ function do_release() {
     tag="python-v$PYTHON_VERSION_FULL"
     release_name="Python $PYTHON_VERSION_FULL"
     release_body="Python $PYTHON_VERSION_FULL\nInstall path: $INSTALL_PATH"
-    if [[ "$DISTRO" == "arch" ]]; then
-        asset="python-$PYTHON_VERSION_FULL-$DISTRO-$ARCH.tar.xz"
-    else
-        asset="python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz"
-    fi
+    asset="python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz"
     git config --global --add safe.directory "$BASE_DIR"
 
     # Check if tag exists
@@ -256,10 +244,6 @@ function do_release() {
             -H "Content-Type: application/gzip" \
             --data-binary @"$asset" \
             "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?name=$(basename "$asset")"
-        if [[ "$DISTRO" == "arch" ]]; then
-            echo "Asset uploaded to release."
-            exit 0
-        fi
         curl -s -H "Authorization: token $GITHUB_TOKEN" \
             -H "Content-Type: application/vnd.debian.binary-package" \
             --data-binary @"python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb" \
