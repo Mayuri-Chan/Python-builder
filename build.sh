@@ -1,11 +1,13 @@
 #!/bin/bash
 
-source config.sh
+if [[ -f config.sh ]]; then
+    source config.sh
+fi
 
 function parse_parameters() {
     while (($#)); do
         case $1 in
-            all | deps | write_config | download | setup_clang | configure | build | install | compress | deb | release ) action=$1 ;;
+            all | deps | write_config | download | setup_clang | configure | build | install | compress | package | release ) action=$1 ;;
             *) exit 33 ;;
         esac
         shift
@@ -13,27 +15,37 @@ function parse_parameters() {
 }
 
 function do_deps() {
-    if [[ $(command -v apt) ]]; then
-        if [[ -f /etc/os-release ]]; then
-            . /etc/os-release
-        else
-            echo "Error: /etc/os-release not found. Cannot determine distribution."
-            exit 1
-        fi
-        case "$ID" in
-            debian)
-                apt update && apt upgrade -y
-                apt install -y curl wget build-essential libreadline-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev libffi-dev zlib1g-dev python3 python3-dev git patchelf file libgdbm-dev liblzma-dev 
-                ;;
-            *)
-                echo "Unsupported distribution: $ID"
-                exit 1
-                ;;
-        esac
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
     else
-        echo "Your selected distribution is not supported."
+        echo "Error: /etc/os-release not found. Cannot determine distribution."
         exit 1
     fi
+
+    case "$ID" in
+        debian)
+            if [[ $(command -v apt) ]]; then
+                apt update && apt upgrade -y
+                apt install -y curl gh wget build-essential libreadline-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev libffi-dev zlib1g-dev python3 python3-dev git patchelf file libgdbm-dev liblzma-dev
+            else
+                echo "apt not found on Debian."
+                exit 1
+            fi
+            ;;
+        fedora)
+            if [[ $(command -v dnf) ]]; then
+                dnf update -y
+                dnf install -y curl gh wget which gcc gcc-c++ make readline-devel ncurses-devel openssl-devel sqlite-devel tk-devel gdbm-devel bzip2-devel libffi-devel zlib-devel python3 python3-devel git patchelf file xz-devel rpm-build
+            else
+                echo "dnf not found on Fedora."
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Unsupported distribution: $ID"
+            exit 1
+            ;;
+    esac
 }
 
 function do_write_config() {
@@ -56,17 +68,24 @@ function do_write_config() {
     else
         echo "export ENABLE_JIT=0" >> config.sh
     fi
-    if [[ $(command -v apt) ]]; then
-        if [[ -f /etc/os-release ]]; then
-            . /etc/os-release
-        else
-            echo "Error: /etc/os-release not found. Cannot determine distribution."
-            exit 1
-        fi
-        echo "export DISTRO=debian" >> config.sh
-        echo "export DISTRO_VERSION=$VERSION_ID" >> config.sh
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        case "$ID" in
+            debian)
+                echo "export DISTRO=$ID" >> config.sh
+                echo "export DISTRO_VERSION=$VERSION_CODENAME" >> config.sh
+                ;;
+            fedora)
+                echo "export DISTRO=$ID" >> config.sh
+                echo "export DISTRO_VERSION=$VERSION_ID" >> config.sh
+                ;;
+            *)
+                echo "Unsupported distribution: $ID"
+                exit 1
+                ;;
+        esac
     else
-        echo "Your selected distribution is not supported."
+        echo "Error: /etc/os-release not found. Cannot determine distribution."
         exit 1
     fi
     ARCH=$(uname -m)
@@ -98,15 +117,33 @@ function do_download() {
 
 function do_setup_clang() {
     if [[ $ARCH = "x86_64" ]]; then
-        if [[ $DISTRO = "debian" ]]; then
-            clang_url="https://github.com/Mayuri-Chan/clang/releases/download/21.0.0git-e64f8e043/Mayuri-clang_21.0.0git-bookworm-adfea33f0.tar.xz"
+        if [[ $DISTRO = "fedora" ]]; then
+            clang_url="https://github.com/Moon-Playground/tc-build/releases/download/21.1.8-2078da43e/Mayuri-clang_21.1.8-fedora43-x86_64-2078da43e.tar.xz"
+        elif [[ $DISTRO = "debian" ]]; then
+            if [[ $DISTRO_VERSION = "bookworm" ]]; then
+                clang_url="https://github.com/Moon-Playground/tc-build/releases/download/21.1.8-2078da43e/Mayuri-clang_21.1.8-bookworm-x86_64-2078da43e.tar.xz"
+            elif [[ $DISTRO_VERSION = "trixie" ]]; then
+                clang_url="https://github.com/Moon-Playground/tc-build/releases/download/21.1.8-2078da43e/Mayuri-clang_21.1.8-trixie-x86_64-2078da43e.tar.xz"
+            else
+                echo "Unsupported Debian version. Only bookworm and trixie are supported."
+                exit 1
+            fi
         else
             echo "Unsupported distribution for x86_64 architecture."
             exit 1
         fi
     else
-        if [[ $DISTRO = "debian" ]]; then
-            clang_url="https://github.com/Mayuri-Chan/clang/releases/download/21.0.0git-e64f8e043/Mayuri-clang_21.0.0git-bookworm-aarch64-adfea33f0.tar.xz"
+        if [[ $DISTRO = "fedora" ]]; then
+            clang_url="https://github.com/Moon-Playground/tc-build/releases/download/21.1.8-2078da43e/Mayuri-clang_21.1.8-fedora43-aarch64-2078da43e.tar.xz"
+        elif [[ $DISTRO = "debian" ]]; then
+            if [[ $DISTRO_VERSION = "bookworm" ]]; then
+                clang_url="https://github.com/Moon-Playground/tc-build/releases/download/21.1.8-2078da43e/Mayuri-clang_21.1.8-bookworm-aarch64-2078da43e.tar.xz"
+            elif [[ $DISTRO_VERSION = "trixie" ]]; then
+                clang_url="https://github.com/Moon-Playground/tc-build/releases/download/21.1.8-2078da43e/Mayuri-clang_21.1.8-trixie-aarch64-2078da43e.tar.xz"
+            else
+                echo "Unsupported Debian version. Only bookworm and trixie are supported."
+                exit 1
+            fi
         else
             echo "Unsupported distribution for ARM64 architecture."
             exit 1
@@ -202,56 +239,118 @@ function do_deb() {
     dpkg-deb --build "$BASE_DIR"/package_root "$BASE_DIR"/dist/python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb
 }
 
+function do_rpm() {
+    mkdir -p "$BASE_DIR"/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS,BUILDROOT}
+
+    # RPM versions cannot contain hyphens
+    RPM_VERSION=${PYTHON_VERSION_FULL//-/_}
+
+    cat <<EOF > "$BASE_DIR"/rpmbuild/SPECS/python.spec
+# Disable the build-id and debuginfo generation that is causing the crash
+%define _missing_build_ids_terminate_build 0
+%define debug_package %{nil}
+%define _build_id_links none
+%global __brp_ldconfig /usr/bin/true
+%global __brp_strip /usr/bin/true
+%global __brp_mangle_shebangs /usr/bin/true
+%global __brp_check_rpaths /usr/bin/true
+%global __brp_python_bytecompile /usr/bin/true
+
+Name:           python${PYTHON_VERSION}-mayuri
+Version:        ${RPM_VERSION}
+Release:        1%{?dist}
+Summary:        Custom build of Python ${PYTHON_VERSION_FULL}
+License:        Python
+Vendor:         Mayuri
+AutoReqProv:    no
+
+%description
+Custom build of Python ${PYTHON_VERSION_FULL}
+Provides latest features and optimizations.
+
+%install
+mkdir -p %{buildroot}${INSTALL_PATH}
+cp -a ${INSTALL_PATH}/* %{buildroot}${INSTALL_PATH}/
+find %{buildroot}${INSTALL_PATH} -type f -name "*.py" -exec sed -i '1s|^#!.*python$|#!/usr/bin/python3|' {} +
+
+%files
+${INSTALL_PATH}
+
+%changelog
+* Sun Jan 11 2026 wulan17 <wulan17@komodos.id> - ${RPM_VERSION}-1
+- Initial build
+EOF
+
+    rpmbuild -bb --define "_topdir $BASE_DIR/rpmbuild" "$BASE_DIR"/rpmbuild/SPECS/python.spec
+
+    mkdir -p "$BASE_DIR"/dist
+    find "$BASE_DIR"/rpmbuild/RPMS -name "*.rpm" -exec cp {} "$BASE_DIR"/dist/ \;
+}
+
 function do_release() {
-    export GITHUB_TOKEN
-    export GITHUB_REPOSITORY
-    cd "$BASE_DIR"/dist || exit 1
-    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-        echo "GITHUB_TOKEN is not set. Skipping release."
-        exit 0
-    fi
-    tag="python-v$PYTHON_VERSION_FULL"
-    release_name="Python $PYTHON_VERSION_FULL"
-    release_body="Python $PYTHON_VERSION_FULL\nInstall path: $INSTALL_PATH"
-    asset="python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz"
-    git config --global --add safe.directory "$BASE_DIR"
+    # Upload to GitHub Releases using GitHub CLI
+    # Find tarball files
+    file_name=$(find "$BASE_DIR"/dist/ -maxdepth 1 -name "python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz" -print -quit)
 
-    # Check if tag exists
-    if curl -sf -H "Authorization: token $GITHUB_TOKEN" \
-        "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/tags/$tag" >/dev/null; then
-        echo "Tag $tag already exists. Skipping tag creation."
-    else
-        # Create tag
-        git tag "$tag"
-        git push origin "$tag"
-        echo "Tag $tag created and pushed."
-    fi
-
-    # Create release (idempotent)
-    release_id=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-        "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/$tag" | grep '"id":' | head -1 | grep -o '[0-9]\+')
-    if [[ -z "$release_id" ]]; then
-        # Create release if not exists
-        response=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-            -d "{\"tag_name\":\"$tag\",\"name\":\"$release_name\",\"body\":\"$release_body\",\"draft\":false,\"prerelease\":false}" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases")
-        release_id=$(echo "$response" | grep '"id":' | head -1 | grep -o '[0-9]\+')
-    fi
-
-    # Upload asset
-    if [[ -n "$release_id" ]]; then
-        curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Content-Type: application/gzip" \
-            --data-binary @"$asset" \
-            "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?name=$(basename "$asset")"
-        curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Content-Type: application/vnd.debian.binary-package" \
-            --data-binary @"python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb" \
-            "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?name=python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb"
-        echo "Asset uploaded to release."
-    else
-        echo "Failed to create or find release."
+    if [[ -z $file_name ]]; then
+        echo "No file found to upload."
         exit 1
+    fi
+
+    git_hash=$(git -C "$BASE_DIR"/Python-* rev-parse --short HEAD)
+    clang_version=$(clang --version | head -n 1 | awk '{print $4}')
+    lld_version=$(ld.lld --version | head -n 1 | awk '{print $3}')
+
+    TAG="python-v$PYTHON_VERSION_FULL"
+    ASSET="$file_name"
+    REPO="$GITHUB_REPOSITORY"
+    TITLE="Python $PYTHON_VERSION_FULL"
+    NOTES="Python $PYTHON_VERSION_FULL\n\n"
+    NOTES+="Build Date: $(date)\n"
+    NOTES+="Install Path: $INSTALL_PATH\n"
+    NOTES+="Git Hash: $git_hash\n"
+    NOTES+="Clang Version: $clang_version\n"
+    NOTES+="LLD Version: $lld_version\n"
+
+    # Check if release exists
+    if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+        echo "Release $TAG exists, uploading asset..."
+        gh release upload "$TAG" "$ASSET" --repo "$REPO" --clobber
+    else
+        echo "Release $TAG does not exist, creating release and uploading asset..."
+        # Workaround
+        # if another release is created at the same time, it will fail
+        # so we try to create release first and then upload asset
+        # this usually happens if the workflow is contains multiple matrix jobs
+        # and they are running at the same time
+        gh release create "$TAG" "$ASSET" \
+            --title "$TITLE" \
+            --notes "$NOTES" \
+            --target "$GITHUB_REF_NAME" \
+            --repo "$REPO" || gh release upload "$TAG" "$ASSET" --repo "$REPO" --clobber
+    fi
+    # Upload distribution packages
+    if [[ "$DISTRO" == "debian" ]]; then
+        for file in "$BASE_DIR"/dist/*.deb; do
+            if [[ -f "$file" ]]; then
+                gh release upload "$TAG" "$file" --repo "$REPO" --clobber
+            fi
+        done
+    elif [[ "$DISTRO" == "fedora" ]]; then
+        for file in "$BASE_DIR"/dist/*.rpm; do
+            if [[ -f "$file" ]]; then
+                gh release upload "$TAG" "$file" --repo "$REPO" --clobber
+            fi
+        done
+    fi
+    echo "Released successfully."
+}
+
+function do_package() {
+    if [[ "$DISTRO" == "debian" ]]; then
+        do_deb
+    elif [[ "$DISTRO" == "fedora" ]]; then
+        do_rpm
     fi
 }
 
@@ -264,7 +363,7 @@ function do_all() {
     do_build
     do_install
     do_compress
-    do_deb
+    do_package
 }
 
 parse_parameters "$@"

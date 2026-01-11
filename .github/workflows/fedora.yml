@@ -1,12 +1,8 @@
-name: Build Python (AARCH64)
+name: Build Python (Fedora)
 
 on:
   workflow_dispatch:
     inputs:
-      image:
-        description: 'Container image to use'
-        required: true
-        default: wulan17/debian-aarch64:latest
       tarball_url:
         description: 'URL to download the tarball (tgz/tar.gz/tar.xz)'
         required: true
@@ -21,12 +17,32 @@ on:
         description: 'Vendor string to embed in the build'
         required: false
         default: 'Mayuri'
+  workflow_call:
+    inputs:
+      tarball_url:
+        type: string
+        required: true
+      install_path:
+        type: string
+        required: false
+      enable_jit:
+        type: string
+        required: false
+      vendor_string:
+        type: string
+        required: false
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
     container:
-      image: ${{ github.event.inputs.image }}
+      image: fedora:latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,24 +52,27 @@ jobs:
       - name: Set up dependencies
         run: bash build.sh deps
 
+      - name: Authenticate GitHub CLI
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
       - name: Write Configuration
         run: bash build.sh write_config
         env:
-          TARBALL_URL: ${{ github.event.inputs.tarball_url }}
-          ENABLE_JIT: ${{ github.event.inputs.enable_jit }}
+          TARBALL_URL: ${{ inputs.tarball_url }}
+          ENABLE_JIT: ${{ inputs.enable_jit }}
           BASE_DIR: ${{ github.workspace }}
-          INSTALL_PATH: ${{ github.event.inputs.install_path }}
+          INSTALL_PATH: ${{ inputs.install_path }}
 
       - name: Download Python source
         run: bash build.sh download
 
-      #- name: Setup clang
-      #  run: bash build.sh setup_clang
+      - name: Setup clang
+        run: bash build.sh setup_clang
 
       - name: Configure Python
         run: bash build.sh configure
         env:
-          VENDOR_STRING: ${{ github.event.inputs.vendor_string }}
+          VENDOR_STRING: ${{ inputs.vendor_string }}
 
       - name: Build Python
         run: bash build.sh build
@@ -64,11 +83,8 @@ jobs:
       - name: Compress Python
         run: bash build.sh compress
 
-      - name: Build Debian Package
-        run: bash build.sh deb
+      - name: Build RPM Package
+        run: bash build.sh package
 
       - name: Release Build Artifacts
         run: bash build.sh release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}

@@ -1,2 +1,2 @@
 # Python builder
-### Currently only support debian (arm64/x86_64)
+### Currently supports Debian and Fedora (arm64/x86_64)
