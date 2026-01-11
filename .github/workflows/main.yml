@@ -3,14 +3,6 @@ name: Build Python
 on:
   workflow_dispatch:
     inputs:
-      image_amd64:
-        description: 'X86_64 Container image to use'
-        required: true
-        default: wulan17/debian:latest
-      image_aarch64:
-        description: 'AARCH64 Container image to use'
-        required: true
-        default: wulan17/debian-aarch64:latest
       tarball_url:
         description: 'URL to download the tarball (tgz/tar.gz/tar.xz)'
         required: true
@@ -26,62 +18,35 @@ on:
         required: false
         default: 'Mayuri'
 
+permissions:
+  contents: write
+
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    container:
-      image: ${{ matrix.image }}
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            os: ubuntu-latest
-            image: ${{ github.event.inputs.image_amd64 }}
-          - arch: aarch64
-            os: ubuntu-24.04-arm
-            image: ${{ github.event.inputs.image_aarch64 }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+  debian-bookworm:
+    uses: ./.github/workflows/debian.yml
+    with:
+      tarball_url: ${{ github.event.inputs.tarball_url }}
+      install_path: ${{ github.event.inputs.install_path }}
+      enable_jit: ${{ github.event.inputs.enable_jit }}
+      vendor_string: ${{ github.event.inputs.vendor_string }}
+      debian_codename: bookworm
+    secrets: inherit
 
-      - name: Set up dependencies
-        run: bash build.sh deps
+  debian-trixie:
+    uses: ./.github/workflows/debian.yml
+    with:
+      tarball_url: ${{ github.event.inputs.tarball_url }}
+      install_path: ${{ github.event.inputs.install_path }}
+      enable_jit: ${{ github.event.inputs.enable_jit }}
+      vendor_string: ${{ github.event.inputs.vendor_string }}
+      debian_codename: trixie
+    secrets: inherit
 
-      - name: Write Configuration
-        run: bash build.sh write_config
-        env:
-          TARBALL_URL: ${{ github.event.inputs.tarball_url }}
-          ENABLE_JIT: ${{ github.event.inputs.enable_jit }}
-          BASE_DIR: ${{ github.workspace }}
-          INSTALL_PATH: ${{ github.event.inputs.install_path }}
-
-      - name: Download Python source
-        run: bash build.sh download
-
-      #- name: Setup clang
-      #  run: bash build.sh setup_clang
-
-      - name: Configure Python
-        run: bash build.sh configure
-        env:
-          VENDOR_STRING: ${{ github.event.inputs.vendor_string }}
-
-      - name: Build Python
-        run: bash build.sh build
-
-      - name: Install Python
-        run: bash build.sh install
-
-      - name: Compress Python
-        run: bash build.sh compress
-
-      - name: Build Debian Package
-        run: bash build.sh deb
-
-      - name: Release Build Artifacts
-        run: bash build.sh release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+  fedora:
+    uses: ./.github/workflows/fedora.yml
+    with:
+      tarball_url: ${{ github.event.inputs.tarball_url }}
+      install_path: ${{ github.event.inputs.install_path }}
+      enable_jit: ${{ github.event.inputs.enable_jit }}
+      vendor_string: ${{ github.event.inputs.vendor_string }}
+    secrets: inherit
