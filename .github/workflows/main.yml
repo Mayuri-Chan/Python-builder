@@ -50,3 +50,12 @@ jobs:
       enable_jit: ${{ github.event.inputs.enable_jit }}
       vendor_string: ${{ github.event.inputs.vendor_string }}
     secrets: inherit
+
+  windows:
+    uses: ./.github/workflows/windows.yml
+    with:
+      tarball_url: ${{ github.event.inputs.tarball_url }}
+      enable_jit: ${{ github.event.inputs.enable_jit }}
+      vendor_string: ${{ github.event.inputs.vendor_string }}
+    secrets: inherit
+

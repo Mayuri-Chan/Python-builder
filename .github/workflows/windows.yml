@@ -1,0 +1,140 @@
+name: Build Python (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tarball_url:
+        description: 'URL to download the tarball (tgz/tar.gz/tar.xz)'
+        required: true
+        default: 'https://www.python.org/ftp/python/3.13.5/Python-3.13.5.tgz'
+      vendor_string:
+        description: 'Vendor string to embed in the build'
+        required: false
+        default: 'Mayuri'
+      enable_jit:
+        description: 'Enable Experimental JIT Compiler Feature (0 for no, 1 for yes)'
+        required: false
+        default: '0'
+  workflow_call:
+    inputs:
+      tarball_url:
+        type: string
+        required: true
+      vendor_string:
+        type: string
+        required: false
+      enable_jit:
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Download Python source
+        shell: pwsh
+        run: |
+          $url = "${{ inputs.tarball_url }}"
+          echo "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile python-src.tar.gz
+          mkdir src
+          tar -xzf python-src.tar.gz -C src --strip-components 1
+
+      - name: Embed Vendor String
+        shell: pwsh
+        run: |
+          cd src
+          $vendor = "${{ inputs.vendor_string }}"
+          if (-not $vendor) { $vendor = "Mayuri" }
+          if (Test-Path Modules/getbuildinfo.c) {
+              (Get-Content Modules/getbuildinfo.c) -replace 'gitid = "main";', "gitid = `"$vendor`";" | Set-Content Modules/getbuildinfo.c
+          }
+
+      - name: Download externals
+        working-directory: src/PCbuild
+        shell: cmd
+        run: |
+          call get_externals.bat
+
+      - name: Build Python
+        working-directory: src/PCbuild
+        shell: cmd
+        run: |
+          set "JIT_FLAG="
+          if "${{ inputs.enable_jit }}"=="1" set "JIT_FLAG=--experimental-jit"
+          call build.bat -p x64 -c Release %JIT_FLAG%
+
+
+      - name: Build MSI Installer
+        working-directory: src/Tools/msi
+        shell: cmd
+        run: |
+          call build.bat --out ..\..\dist-msi -x64 --skip-doc
+
+      - name: Prepare Artifacts
+        shell: pwsh
+        run: |
+          $python_exe = "src/PCbuild/amd64/python.exe"
+          $ver_full = & $python_exe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
+          $dist_zip = "python-$ver_full-windows-amd64.zip"
+          
+          echo "TAG=python-v$ver_full-win" >> $env:GITHUB_ENV
+          echo "PYTHON_VERSION_FULL=$ver_full" >> $env:GITHUB_ENV
+          echo "DIST_ZIP=$dist_zip" >> $env:GITHUB_ENV
+          
+          mkdir dist
+          # Create ZIP distribution
+          mkdir staging
+          cp -r src/PCbuild/amd64/* staging/
+          Get-ChildItem -Path staging -Include *.obj,*.lib,*.exp,*.pch,*.iobj,*.ipdb -Recurse | Remove-Item
+          Compress-Archive -Path staging/* -DestinationPath "dist/$dist_zip"
+          
+          # Move MSI to dist
+          if (Test-Path "dist-msi") {
+              Get-ChildItem -Path "dist-msi" -Filter "*.msi" | Copy-Item -Destination "dist/"
+          }
+
+      - name: Release Build Artifacts
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${TAG}"
+          REPO="${GITHUB_REPOSITORY}"
+          TITLE="Python ${PYTHON_VERSION_FULL} (Windows)"
+          
+          # Prepare release notes
+          MSVC_VERSION=$(cl 2>&1 | head -n 1 || echo "MSVC")
+          NOTES="### 🐍 Python ${PYTHON_VERSION_FULL} Windows Build Information
+
+          | Information | Value |
+          | :--- | :--- |
+          | **Build Date** | \`$(date)\` |
+          | **Compiler** | \`$MSVC_VERSION\` |"
+
+          # Create release if it doesn't exist
+          if ! gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+              echo "Release $TAG does not exist, creating..."
+              gh release create "$TAG" --title "$TITLE" --notes "$NOTES" --target "$GITHUB_REF_NAME" --repo "$REPO"
+          else
+              echo "Release $TAG already exists."
+          fi
+
+          # Upload all files in dist folder
+          for file in dist/*; do
+              if [ -f "$file" ]; then
+                  echo "Uploading $file..."
+                  gh release upload "$TAG" "$file" --repo "$REPO" --clobber
+              fi
+          done
