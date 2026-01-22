@@ -1,0 +1,121 @@
+name: Build Python (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'meta/3.14'
+      vendor_string:
+        description: 'Vendor string to embed in the build'
+        required: false
+        default: 'Mayuri'
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        required: true
+      vendor_string:
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Clone Cinder source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ inputs.branch }}
+          repository: facebookincubator/cinder
+          path: src
+
+      - name: Embed Vendor String
+        shell: pwsh
+        run: |
+          cd src
+          $vendor = "${{ inputs.vendor_string }}"
+          if (-not $vendor) { $vendor = "Mayuri" }
+          # Use basic grep-like logic for PowerShell to be safe with line endings
+          (Get-Content Modules/getbuildinfo.c) -replace 'gitid = "main";', "gitid = `"$vendor`";" | Set-Content Modules/getbuildinfo.c
+
+      - name: Download externals
+        working-directory: src/PCbuild
+        run: .\get_externals.bat
+
+      - name: Build Python
+        working-directory: src/PCbuild
+        run: .\build.bat -e -p x64 -c Release
+
+      - name: Build MSI Installer
+        working-directory: src/Tools/msi
+        run: .\build.bat --out ..\..\dist-msi -x64
+
+      - name: Prepare Artifacts
+        shell: pwsh
+        run: |
+          $python_exe = "src/PCbuild/amd64/python.exe"
+          $ver_full = & $python_exe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
+          $git_hash = git -C src rev-parse --short HEAD
+          $dist_zip = "cinder-v$ver_full-$git_hash-windows-x86_64.zip"
+          
+          echo "TAG=cinder-v$ver_full-$git_hash-win" >> $env:GITHUB_ENV
+          echo "PYTHON_VERSION_FULL=$ver_full" >> $env:GITHUB_ENV
+          echo "DIST_ZIP=$dist_zip" >> $env:GITHUB_ENV
+          
+          mkdir dist
+          # Create ZIP distribution
+          mkdir staging
+          cp -r src/PCbuild/amd64/* staging/
+          Get-ChildItem -Path staging -Include *.obj,*.lib,*.exp,*.pch,*.iobj,*.ipdb -Recurse | Remove-Item
+          Compress-Archive -Path staging/* -DestinationPath "dist/$dist_zip"
+          
+          # Move MSI to dist
+          if (Test-Path "dist-msi") {
+              Get-ChildItem -Path "dist-msi" -Filter "*.msi" | Copy-Item -Destination "dist/"
+          }
+
+      - name: Release Build Artifacts
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${TAG}"
+          REPO="${GITHUB_REPOSITORY}"
+          TITLE="Python (cinder) ${PYTHON_VERSION_FULL} Windows Build"
+          
+          # Prepare release notes
+          MSVC_VERSION=$(cl 2>&1 | head -n 1)
+          NOTES="### 🐍 Python ${PYTHON_VERSION_FULL} Windows Build Information
+
+          | Information | Value |
+          | :--- | :--- |
+          | **Build Date** | \`$(date)\` |
+          | **Compiler** | \`$MSVC_VERSION\` |"
+
+          # Create release if it doesn't exist
+          if ! gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+              echo "Release $TAG does not exist, creating..."
+              gh release create "$TAG" --title "$TITLE" --notes "$NOTES" --target "$GITHUB_REF_NAME" --repo "$REPO"
+          fi
+
+          # Upload all files in dist folder
+          for file in dist/*; do
+              if [ -f "$file" ]; then
+                  echo "Uploading $file..."
+                  gh release upload "$TAG" "$file" --repo "$REPO" --clobber
+              fi
+          done

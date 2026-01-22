@@ -7,7 +7,7 @@ fi
 function parse_parameters() {
     while (($#)); do
         case $1 in
-            all | deps | write_config | download | setup_clang | configure | build | install | compress | package | release ) action=$1 ;;
+            all | deps | write_config | setup_clang | configure | build | install | compress | package | release ) action=$1 ;;
             *) exit 33 ;;
         esac
         shift
@@ -26,7 +26,17 @@ function do_deps() {
         debian)
             if [[ $(command -v apt) ]]; then
                 apt update && apt upgrade -y
-                apt install -y curl gh wget build-essential libreadline-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev libc6-dev libbz2-dev libffi-dev zlib1g-dev python3 python3-dev git patchelf file libgdbm-dev liblzma-dev
+                apt install -y \
+                    curl gh wget build-essential gdb lcov pkg-config \
+                    libreadline-dev libncursesw5-dev libssl-dev \
+                    libsqlite3-dev tk-dev libgdbm-dev libgdbm-compat-dev \
+                    libc6-dev libbz2-dev libffi-dev zlib1g-dev python3 \
+                    python3-dev git patchelf file liblzma-dev lzma \
+                    uuid-dev libzstd-dev inetutils-inetd \
+                    libncurses5-dev libreadline6-dev
+                if [[ $DISTRO_VERSION = "bookworm" ]]; then
+                    apt install -y lzma-dev
+                fi
             else
                 echo "apt not found on Debian."
                 exit 1
@@ -35,7 +45,15 @@ function do_deps() {
         fedora)
             if [[ $(command -v dnf) ]]; then
                 dnf update -y
-                dnf install -y curl gh wget which gcc gcc-c++ make readline-devel ncurses-devel openssl-devel sqlite-devel tk-devel gdbm-devel bzip2-devel libffi-devel zlib-devel python3 python3-devel git patchelf file xz-devel rpm-build
+                dnf install -y \
+                    pkg-config dnf-plugins-core curl gh wget which \
+                    gcc gcc-c++ make gdb lzma glibc-devel libstdc++-devel \
+                    openssl-devel readline-devel zlib-devel libzstd-devel \
+                    libffi-devel bzip2-devel xz-devel sqlite sqlite-devel \
+                    sqlite-libs libuuid-devel gdbm-libs gdbm-devel perf \
+                    expat expat-devel mpdecimal python3-pip python3 \
+                    python3-devel git patchelf file ncurses-devel \
+                    tk-devel rpm-build
             else
                 echo "dnf not found on Fedora."
                 exit 1
@@ -53,20 +71,17 @@ function do_write_config() {
     echo "#!/bin/bash" > config.sh
     echo "export BASE_DIR=$BASE_DIR" >> config.sh
     echo 'export PATH="$BASE_DIR/clang/bin:$PATH"' >> config.sh
-    python_version=$(echo "$TARBALL_URL" | grep -oP 'Python-\K[0-9]+\.[0-9]+')
-    python_version_full=$(echo "$TARBALL_URL" | grep -oP 'Python-\K[0-9]+\.[0-9]+\.[0-9]+')
+    python_major=$(cat "$BASE_DIR/src/Include/patchlevel.h" | grep 'define PY_MAJOR_VERSION' | grep -oP '[0-9]+')
+    python_minor=$(cat "$BASE_DIR/src/Include/patchlevel.h" | grep 'define PY_MINOR_VERSION' | grep -oP '[0-9]+')
+    python_micro=$(cat "$BASE_DIR/src/Include/patchlevel.h" | grep 'define PY_MICRO_VERSION' | grep -oP '[0-9]+')
+    python_version="$python_major.$python_minor"
+    python_version_full="$python_major.$python_minor.$python_micro"
     echo "export PYTHON_VERSION=$python_version" >> config.sh
     echo "export PYTHON_VERSION_FULL=$python_version_full" >> config.sh
-    echo "export TARBALL_URL=$TARBALL_URL" >> config.sh
     if [[ -n $INSTALL_PATH ]]; then
         echo "export INSTALL_PATH=$INSTALL_PATH" >> config.sh
     else
-        echo "export INSTALL_PATH=/opt/python$python_version" >> config.sh
-    fi
-    if [[ -n $ENABLE_JIT ]];then
-        echo "export ENABLE_JIT=$ENABLE_JIT" >> config.sh
-    else
-        echo "export ENABLE_JIT=0" >> config.sh
+        echo "export INSTALL_PATH=/opt/cinder$python_version" >> config.sh
     fi
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
@@ -101,18 +116,6 @@ function do_write_config() {
             exit 1
             ;;
     esac
-}
-
-function do_download() {
-    cd "$BASE_DIR" || exit 1
-    if [[ "$TARBALL_URL" == *.tar.gz || "$TARBALL_URL" == *.tgz ]];then
-        curl -L "$TARBALL_URL" | tar -xz
-    elif [[ "$TARBALL_URL" == *.tar.xz ]];then
-        curl -L "$TARBALL_URL" | tar -xJ
-    else
-        echo "Unsupported archive format. Only .tgz, .tar.gz and .tar.xz are supported."
-        exit 1
-    fi
 }
 
 function do_setup_clang() {
@@ -177,11 +180,7 @@ function do_configure() {
         HOST=aarch64-unknown-linux-gnu
         BUILD=aarch64-unknown-linux-gnu
     fi
-    cd "$BASE_DIR"/Python-* || exit 1
-    EXTRAFLAGS=""
-    if [[ "$ENABLE_JIT" == "1" ]]; then
-        EXTRAFLAGS+=" --enable-experimental-jit"
-    fi
+    cd "$BASE_DIR"/src || exit 1
     sed -i 's#gitid = "main";#gitid = "'"$VENDOR_STRING"'";#g' Modules/getbuildinfo.c
     ./configure --prefix="$INSTALL_PATH" --target=$TARGET \
       --enable-shared --build=$BUILD --host=$HOST \
@@ -201,17 +200,16 @@ function do_configure() {
       LLVM_NM=$(which llvm-nm) \
       LLVM_STRIP=$(which llvm-strip) \
       LLVM_PROFDATA=$(which llvm-profdata) \
-      LDFLAGS="-Wl,--rpath=$INSTALL_PATH/lib -fuse-ld=lld" \
-      $EXTRAFLAGS || exit 1
+      LDFLAGS="-Wl,--rpath=$INSTALL_PATH/lib -fuse-ld=lld" || exit 1
 }
 
 function do_build(){
-    cd "$BASE_DIR"/Python-* || exit 1
+    cd "$BASE_DIR"/src || exit 1
     make -j$(nproc)
 }
 
 function do_install() {
-    cd "$BASE_DIR"/Python-* || exit 1
+    cd "$BASE_DIR"/src || exit 1
     make altinstall
 
     # Strip remaining binaries
@@ -221,9 +219,8 @@ function do_install() {
 }
 
 function do_compress() {
-    cd "$BASE_DIR"/Python-* || exit 1
     mkdir -p "$BASE_DIR"/dist
-    tar -cJf "$BASE_DIR"/dist/python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz -C "$INSTALL_PATH" .
+    tar -cJf "$BASE_DIR"/dist/cinder-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz -C "$INSTALL_PATH" .
 }
 
 function do_deb() {
@@ -236,7 +233,7 @@ function do_deb() {
     fi
     mkdir -p "$BASE_DIR"/package_root"$INSTALL_PATH"
     cp -r "$INSTALL_PATH"/* "$BASE_DIR"/package_root"$INSTALL_PATH"/
-    dpkg-deb --build "$BASE_DIR"/package_root "$BASE_DIR"/dist/python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb
+    dpkg-deb --build "$BASE_DIR"/package_root "$BASE_DIR"/dist/cinder-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.deb
 }
 
 function do_rpm() {
@@ -245,7 +242,7 @@ function do_rpm() {
     # RPM versions cannot contain hyphens
     RPM_VERSION=${PYTHON_VERSION_FULL//-/_}
 
-    cat <<EOF > "$BASE_DIR"/rpmbuild/SPECS/python.spec
+    cat <<EOF > "$BASE_DIR"/rpmbuild/SPECS/cinder.spec
 # Disable the build-id and debuginfo generation that is causing the crash
 %define _missing_build_ids_terminate_build 0
 %define debug_package %{nil}
@@ -256,16 +253,16 @@ function do_rpm() {
 %global __brp_check_rpaths /usr/bin/true
 %global __brp_python_bytecompile /usr/bin/true
 
-Name:           python${PYTHON_VERSION}-mayuri
+Name:           cinder${PYTHON_VERSION}-mayuri
 Version:        ${RPM_VERSION}
 Release:        1%{?dist}
-Summary:        Custom build of Python ${PYTHON_VERSION_FULL}
+Summary:        Custom build of Cinder Python ${PYTHON_VERSION_FULL}
 License:        Python
 Vendor:         Mayuri
 AutoReqProv:    no
 
 %description
-Custom build of Python ${PYTHON_VERSION_FULL}
+Custom build of Cinder Python ${PYTHON_VERSION_FULL}
 Provides latest features and optimizations.
 
 %install
@@ -281,7 +278,7 @@ ${INSTALL_PATH}
 - Initial build
 EOF
 
-    rpmbuild -bb --define "_topdir $BASE_DIR/rpmbuild" "$BASE_DIR"/rpmbuild/SPECS/python.spec
+    rpmbuild -bb --define "_topdir $BASE_DIR/rpmbuild" "$BASE_DIR"/rpmbuild/SPECS/cinder.spec
 
     mkdir -p "$BASE_DIR"/dist
     find "$BASE_DIR"/rpmbuild/RPMS -name "*.rpm" -exec cp {} "$BASE_DIR"/dist/ \;
@@ -290,7 +287,7 @@ EOF
 function do_release() {
     # Upload to GitHub Releases using GitHub CLI
     # Find tarball files
-    file_name=$(find "$BASE_DIR"/dist/ -maxdepth 1 -name "python-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz" -print -quit)
+    file_name=$(find "$BASE_DIR"/dist/ -maxdepth 1 -name "cinder-$PYTHON_VERSION_FULL-$DISTRO-$DISTRO_VERSION-$ARCH.tar.xz" -print -quit)
 
     if [[ -z $file_name ]]; then
         echo "No file found to upload."
@@ -308,17 +305,19 @@ function do_release() {
         os_info="Unknown Linux"
     fi
 
-    TAG="python-v$PYTHON_VERSION_FULL"
+    GIT_HASH=$(git -C "$BASE_DIR/src" rev-parse HEAD)
+    TAG="cinder-v$PYTHON_VERSION_FULL-${GIT_HASH:0:7}"
     ASSET="$file_name"
     REPO="$GITHUB_REPOSITORY"
-    TITLE="Python $PYTHON_VERSION_FULL"
+    TITLE="Python (cinder) $PYTHON_VERSION_FULL"
     
     # Format release notes as a markdown table
     NOTES="### 🐍 Python $PYTHON_VERSION_FULL Build Information
 
 | Information | Value |
 | :--- | :--- |
-| **Build Date** | $(date) |
+| **Build Date** | \`$(date)\` |
+| **Commit** | [${GIT_HASH:0:7}](https://github.com/facebookincubator/cinder/commit/$GIT_HASH) |
 | **Install Path** | \`$INSTALL_PATH\` |
 | **Clang Version** | \`$clang_version\` |
 | **LLD Version** | \`$lld_version\` |"
@@ -369,7 +368,6 @@ function do_all() {
     do_deps
     do_write_config
     do_setup_clang
-    do_download
     do_configure
     do_build
     do_install
