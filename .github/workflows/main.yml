@@ -3,15 +3,12 @@ name: Build Python
 on:
   workflow_dispatch:
     inputs:
-      tarball_url:
-        description: 'URL to download the tarball (tgz/tar.gz/tar.xz)'
+      branch:
+        description: 'Branch to build'
         required: true
-        default: 'https://www.python.org/ftp/python/3.13.5/Python-3.13.5.tgz'
+        default: 'meta/3.14'
       install_path:
-        description: 'Installation path for Python (default: /opt/pythonX.Y)'
-        required: false
-      enable_jit:
-        description: 'Enable Experimental JIT Compiler Feature (0 for no, 1 for yes)'
+        description: 'Installation path for Python (default: /opt/cinderX.Y)'
         required: false
       vendor_string:
         description: 'Vendor string to embed in the build'
@@ -22,31 +19,35 @@ permissions:
   contents: write
 
 jobs:
-  debian-bookworm:
+  cinder-bookworm:
     uses: ./.github/workflows/debian.yml
     with:
-      tarball_url: ${{ github.event.inputs.tarball_url }}
+      branch: ${{ github.event.inputs.branch }}
       install_path: ${{ github.event.inputs.install_path }}
-      enable_jit: ${{ github.event.inputs.enable_jit }}
       vendor_string: ${{ github.event.inputs.vendor_string }}
       debian_codename: bookworm
     secrets: inherit
 
-  debian-trixie:
+  cinder-trixie:
     uses: ./.github/workflows/debian.yml
     with:
-      tarball_url: ${{ github.event.inputs.tarball_url }}
+      branch: ${{ github.event.inputs.branch }}
       install_path: ${{ github.event.inputs.install_path }}
-      enable_jit: ${{ github.event.inputs.enable_jit }}
       vendor_string: ${{ github.event.inputs.vendor_string }}
       debian_codename: trixie
     secrets: inherit
 
-  fedora:
+  cinder-fedora:
     uses: ./.github/workflows/fedora.yml
     with:
-      tarball_url: ${{ github.event.inputs.tarball_url }}
+      branch: ${{ github.event.inputs.branch }}
       install_path: ${{ github.event.inputs.install_path }}
-      enable_jit: ${{ github.event.inputs.enable_jit }}
+      vendor_string: ${{ github.event.inputs.vendor_string }}
+    secrets: inherit
+
+  cinder-windows:
+    uses: ./.github/workflows/windows.yml
+    with:
+      branch: ${{ github.event.inputs.branch }}
       vendor_string: ${{ github.event.inputs.vendor_string }}
     secrets: inherit

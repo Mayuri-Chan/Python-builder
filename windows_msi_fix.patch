@@ -1,0 +1,78 @@
+diff --git a/Tools/msi/doc/doc.wixproj b/Tools/msi/doc/doc.wixproj
+index 8368796..be0deed 100644
+--- a/Tools/msi/doc/doc.wixproj
++++ b/Tools/msi/doc/doc.wixproj
+@@ -12,6 +12,9 @@
+     <PropertyGroup>
+         <DocHtmlPath>$(PySourcePath)Doc\build\html\</DocHtmlPath>
+         <DocHtmlPath Condition="!HasTrailingSlash($(DocHtmlPath))">$(DocHtmlPath)\</DocHtmlPath>
++        <HasDoc Condition="Exists('$(DocHtmlPath)index.html')">1</HasDoc>
++        <HasDoc Condition="'$(HasDoc)' == ''">0</HasDoc>
++        <DefineConstants>$(DefineConstants);HasDoc=$(HasDoc)</DefineConstants>
+     </PropertyGroup>
+     <ItemGroup>
+         <LinkerBindInputPaths Include="$(DocHtmlPath)">
+diff --git a/Tools/msi/doc/doc.wxs b/Tools/msi/doc/doc.wxs
+index 49798c7..68d36ff 100644
+--- a/Tools/msi/doc/doc.wxs
++++ b/Tools/msi/doc/doc.wxs
+@@ -12,11 +12,13 @@
+             <ComponentGroupRef Id="doc_html" Primary="yes" />
+             <ComponentRef Id="OptionalFeature" />
+ 
++<?if $(var.HasDoc) = 1 ?>
+             <Component Id="doc_reg" Directory="Doc" Guid="*">
+                 <RegistryKey Root="HKMU" Key="[REGISTRYKEY]">                                                 
+                     <RegistryValue Key="Help\Main Python Documentation" Type="string" Value="[#Doc_html_index.html]" KeyPath="yes" />
+                 </RegistryKey>                                                                                
+             </Component>
++<?endif?>
+ 
+             <Component Id="doc_folder" Directory="Doc" Guid="{22FD42DB-EC66-4B1C-B1FC-44E0CF7B2462}">
+                 <CreateFolder />
+@@ -26,6 +28,7 @@
+         <Feature Id="Shortcuts" AllowAdvertise="no" Title="!(loc.Title)" Description="!(loc.Description)">
+             <ComponentGroupRef Id="doc_html" />
+             
++<?if $(var.HasDoc) = 1 ?>
+             <Component Id="doc_shortcut" Directory="MenuDir" Guid="*">
+                 <RegistryKey Root="HKMU" Key="[OPTIONALFEATURESREGISTRYKEY]">
+                     <RegistryValue Name="$(var.OptionalFeatureName)_shortcut" Type="string" Value="$(var.Version)" KeyPath="yes" />
+@@ -38,6 +41,13 @@
+                           Show="maximized" />
+                 <RemoveFolder Id="Remove_MenuDir" On="uninstall" />
+             </Component>
++<?endif?>
+         </Feature>
+     </Product>
++
++    <?if $(var.HasDoc) = 0 ?>
++    <Fragment>
++        <ComponentGroup Id="doc_html" />
++    </Fragment>
++    <?endif ?>
+ </Wix>
+diff --git a/Tools/msi/tcltk/tcltk.wxs b/Tools/msi/tcltk/tcltk.wxs
+index bad56d5..c5b1279 100644
+--- a/Tools/msi/tcltk/tcltk.wxs
++++ b/Tools/msi/tcltk/tcltk.wxs
+@@ -28,8 +28,8 @@
+             <ComponentGroupRef Id="tcltk_lib" />
+             <ComponentGroupRef Id="tkinter_lib" Primary="yes" />
+             
+-            <Component Id="idle_reg" Directory="InstallDirectory">
+-                <RegistryValue KeyPath="yes" Root="HKMU" Key="[REGISTRYKEY]\Idle" Type="string" Value="[#Lib_idlelib_idle.pyw]" />
++            <Component Id="idle_lib_reg" Directory="InstallDirectory">
++                <RegistryValue KeyPath="yes" Root="HKMU" Key="[REGISTRYKEY]\Idle" Type="string" Value="[InstallDirectory]Lib\idlelib\idle.pyw" />
+             </Component>
+             <ComponentRef Id="OptionalFeature" />
+         </Feature>
+@@ -49,7 +49,7 @@
+                           Name="!(loc.ShortcutName)"
+                           Description="!(loc.ShortcutDescription)"
+                           Target="[PYTHONW_EXE]"
+-                          Arguments='"[#Lib_idlelib_idle.pyw]"'
++                          Arguments='"[InstallDirectory]Lib\idlelib\idle.pyw"'
+                           Icon="idle.exe"
+                           WorkingDirectory="InstallDirectory">
+                     <Icon Id="idle.exe" SourceFile="!(bindpath.src)Lib\idlelib\Icons\idle.ico" />
