@@ -44,13 +44,16 @@ jobs:
           path: src
 
       - name: Embed Vendor String
-        shell: pwsh
+        shell: bash
         run: |
           cd src
-          $vendor = "${{ inputs.vendor_string }}"
-          if (-not $vendor) { $vendor = "Mayuri" }
-          # Use basic grep-like logic for PowerShell to be safe with line endings
-          (Get-Content Modules/getbuildinfo.c) -replace 'gitid = "main";', "gitid = `"$vendor`";" | Set-Content Modules/getbuildinfo.c
+          git checkout -b ${{ inputs.vendor_string }} || true
+          sed -i "s/return GITVERSION;/return \"\";/" Modules/getbuildinfo.c
+          sed -i "s/gitid = GITBRANCH;/gitid = \"${{ inputs.vendor_string }}\";/" Modules/getbuildinfo.c
+          git add Modules/getbuildinfo.c
+          git config --local user.name "mayuri"
+          git config --local user.email "mayuri@mayuri.my.id"
+          git commit -m "Set vendor string to ${{ inputs.vendor_string }}"
 
       - name: Download externals
         working-directory: src/PCbuild
