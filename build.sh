@@ -171,6 +171,7 @@ function do_setup_clang() {
 }
 
 function do_configure() {
+    : "${VENDOR_STRING:=Mayuri}"
     if [[ "$ARCH" == "x86_64" ]]; then
         TARGET=x86_64-pc-linux-gnu
         HOST=x86_64-pc-linux-gnu
@@ -181,7 +182,13 @@ function do_configure() {
         BUILD=aarch64-unknown-linux-gnu
     fi
     cd "$BASE_DIR"/src || exit 1
-    sed -i 's#gitid = "main";#gitid = "'"$VENDOR_STRING"'";#g' Modules/getbuildinfo.c
+    git checkout -b "$VENDOR_STRING" || true
+    sed -i "s/return GITVERSION;/return \"\";/" Modules/getbuildinfo.c
+    sed -i "s/return gitid;/return \"$VENDOR_STRING\";/" Modules/getbuildinfo.c
+    git add Modules/getbuildinfo.c
+    git config --local user.name "mayuri"
+    git config --local user.email "mayuri@mayuri.my.id"
+    git commit -m "Set vendor string to $VENDOR_STRING"
     ./configure --prefix="$INSTALL_PATH" --target=$TARGET \
       --enable-shared --build=$BUILD --host=$HOST \
       --with-computed-gotos \
