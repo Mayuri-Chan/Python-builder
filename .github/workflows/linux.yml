@@ -1,0 +1,46 @@
+name: Build Python (Linux)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'meta/3.14'
+      install_path:
+        description: 'Installation path for Python (default: /opt/cinderX.Y)'
+        required: false
+      vendor_string:
+        description: 'Vendor string to embed in the build'
+        required: false
+        default: 'Mayuri'
+
+permissions:
+  contents: write
+
+jobs:
+  cinder-bookworm:
+    uses: ./.github/workflows/debian.yml
+    with:
+      branch: ${{ github.event.inputs.branch }}
+      install_path: ${{ github.event.inputs.install_path }}
+      vendor_string: ${{ github.event.inputs.vendor_string }}
+      debian_codename: bookworm
+    secrets: inherit
+
+  cinder-trixie:
+    uses: ./.github/workflows/debian.yml
+    with:
+      branch: ${{ github.event.inputs.branch }}
+      install_path: ${{ github.event.inputs.install_path }}
+      vendor_string: ${{ github.event.inputs.vendor_string }}
+      debian_codename: trixie
+    secrets: inherit
+
+  cinder-fedora:
+    uses: ./.github/workflows/fedora.yml
+    with:
+      branch: ${{ github.event.inputs.branch }}
+      install_path: ${{ github.event.inputs.install_path }}
+      vendor_string: ${{ github.event.inputs.vendor_string }}
+    secrets: inherit
