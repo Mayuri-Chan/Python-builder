@@ -78,6 +78,7 @@ function do_write_config() {
     python_version_full="$python_major.$python_minor.$python_micro"
     echo "export PYTHON_VERSION=$python_version" >> config.sh
     echo "export PYTHON_VERSION_FULL=$python_version_full" >> config.sh
+    echo "export GIT_HASH=$(git -C $BASE_DIR/src rev-parse HEAD)" >> config.sh
     if [[ -n $INSTALL_PATH ]]; then
         echo "export INSTALL_PATH=$INSTALL_PATH" >> config.sh
     else
@@ -312,7 +313,6 @@ function do_release() {
         os_info="Unknown Linux"
     fi
 
-    GIT_HASH=$(git -C "$BASE_DIR/src" rev-parse HEAD)
     TAG="cinder-v$PYTHON_VERSION_FULL-${GIT_HASH:0:7}"
     ASSET="$file_name"
     REPO="$GITHUB_REPOSITORY"

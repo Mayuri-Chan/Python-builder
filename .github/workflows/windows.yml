@@ -47,6 +47,10 @@ jobs:
         shell: bash
         run: |
           cd src
+          # Capture upstream hash before patching
+          echo "GIT_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "GIT_HASH_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          
           git checkout -b ${{ inputs.vendor_string }} || true
           sed -i "s/return GITVERSION;/return \"\";/" Modules/getbuildinfo.c
           sed -i "s/return gitid;/return \"${{ inputs.vendor_string }}\";/" Modules/getbuildinfo.c
@@ -68,12 +72,11 @@ jobs:
         run: |
           $python_exe = "src/PCbuild/amd64/python.exe"
           $ver_full = & $python_exe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
-          $git_hash = git -C src rev-parse --short HEAD
+          $git_hash = $env:GIT_HASH_SHORT
           $dist_zip = "cinder-v$ver_full-$git_hash-windows-x86_64.zip"
           
           echo "TAG=cinder-v$ver_full-$git_hash-win" >> $env:GITHUB_ENV
           echo "PYTHON_VERSION_FULL=$ver_full" >> $env:GITHUB_ENV
-          echo "GIT_HASH=$git_hash" >> $env:GITHUB_ENV
           echo "DIST_ZIP=$dist_zip" >> $env:GITHUB_ENV
           
           if (!(Test-Path "dist")) { New-Item -ItemType Directory -Path "dist" -Force }
@@ -98,7 +101,7 @@ jobs:
         shell: pwsh
         run: |
           $ver_full = $env:PYTHON_VERSION_FULL
-          $git_hash = $env:GIT_HASH
+          $git_hash = $env:GIT_HASH_SHORT
           $msi_zip = "cinder-v$ver_full-$git_hash-windows-x86_64-msi.zip"
           
           echo "MSI_ZIP=$msi_zip" >> $env:GITHUB_ENV
@@ -125,7 +128,7 @@ jobs:
           | :--- | :--- |
           | **Build Date** | \`$(date)\` |
           | **Compiler** | \`$MSVC_VERSION\` |
-          | **Commit** | [${GIT_HASH}](https://github.com/facebookincubator/cinder/tree/$GIT_HASH) |"
+          | **Commit** | [${GIT_HASH_SHORT}](https://github.com/facebookincubator/cinder/tree/$GIT_HASH) |"
 
           # Create release if it doesn't exist
           if ! gh release view "$TAG" --repo "$REPO" &>/dev/null; then
